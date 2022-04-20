@@ -1,0 +1,558 @@
+<html>
+
+<head>
+<title>ICG WebGL &mdash; HW1</title>
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+<link rel="stylesheet" href="style.css">
+<script type="text/javascript" src="./js/glMatrix-0.9.5.min.js"></script>
+<script type="text/javascript" src="./js/webgl-utils.js"></script>
+
+<!-- 
+    TODO HERE: 
+    modify fragment shader or write another one
+    to implement flat, gouraud and phong shading
+ -->
+<script id="fragmentShader" type="fragment">
+    precision mediump float;
+
+    varying vec4 fragcolor;
+
+    void main(void) {
+        gl_FragColor = fragcolor;
+    }
+</script>
+
+<!-- 
+    TODO HERE:
+    modify vertex shader or write another one
+    to implement flat, gouraud and phong shading
+
+    NOTE:
+    if you want to write bonus part (texture mapping),
+    only Teapot.json has extra attribute "vertexTextureCoords"
+    which is used for texture mappping.
+ -->
+<script id="vertexShader" type="vertex">
+    attribute vec3 aVertexPosition;
+    attribute vec3 aFrontColor;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+
+	varying vec4 fragcolor;
+
+    void main(void) {
+        fragcolor = vec4(aFrontColor.rgb, 1.0);
+        gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+    }
+</script>
+
+<script type="text/javascript">
+    // common variables
+    var gl;
+    var shaderProgram;
+
+    var mvMatrix = mat4.create();
+    var pMatrix  = mat4.create();
+
+    var teapotVertexPositionBuffer;
+    var teapotVertexNormalBuffer;
+    var teapotVertexFrontColorBuffer;
+
+    var plantVertexPositionBuffer;
+    var plantVertexNormalBuffer;
+    var plantVertexFrontColorBuffer;
+
+    var kangarooVertexPositionBuffer;
+    var kangarooVertexNormalBuffer;
+    var kangarooVertexFrontColorBuffer;
+
+    var teapotAngle = 0;
+    var plantAngle = 180;
+    var kangarooAngle = 180;
+    var lastTime    = 0;
+
+    function initGL(canvas) {
+        try {
+            gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+            gl.viewportWidth  = canvas.width;
+            gl.viewportHeight = canvas.height;
+        } 
+        catch (e) {
+        }
+
+        if (!gl) {
+            alert("Could not initialise WebGL, sorry :-(");
+        }
+        if(!gl.getExtension('OES_standard_derivatives')) {
+        throw 'extension not support'; 
+        }
+    }
+
+    function getShader(gl, id) {
+        var shaderScript = document.getElementById(id);
+        if (!shaderScript) {
+            return null;
+        }
+
+        var shaderSource = "";
+        var k = shaderScript.firstChild;
+        while (k) {
+            if (k.nodeType == 3) {
+                shaderSource += k.textContent;
+            }
+
+            k = k.nextSibling;
+        }
+
+        var shader;
+        if (shaderScript.type == "fragment") {
+            shader = gl.createShader(gl.FRAGMENT_SHADER);
+        } 
+        else if (shaderScript.type == "vertex") {
+            shader = gl.createShader(gl.VERTEX_SHADER);
+        } 
+        else {
+            return null;
+        }
+
+        gl.shaderSource(shader, shaderSource);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            alert(gl.getShaderInfoLog(shader));
+            return null;
+        }
+
+        return shader;
+    }
+
+    function initShaders() {
+        var fragmentShader = getShader(gl, "fragmentShader");
+        var vertexShader   = getShader(gl, "vertexShader");
+
+        shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
+
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+            alert("Could not initialise shaders");
+        }
+
+        gl.useProgram(shaderProgram);
+
+        shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+        gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+        shaderProgram.vertexFrontColorAttribute = gl.getAttribLocation(shaderProgram, "aFrontColor");
+        gl.enableVertexAttribArray(shaderProgram.vertexFrontColorAttribute);
+
+        shaderProgram.pMatrixUniform  = gl.getUniformLocation(shaderProgram, "uPMatrix");
+        shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
+    }
+
+    function setMatrixUniforms() {
+        gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, pMatrix);
+        gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, mvMatrix);
+    }
+
+    function degToRad(degrees) {
+        return degrees * Math.PI / 180;
+    }
+
+    function handleLoadedTeapot(teapotData) {
+        teapotVertexPositionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(teapotData.vertexPositions), gl.STATIC_DRAW);
+        teapotVertexPositionBuffer.itemSize = 3;
+        teapotVertexPositionBuffer.numItems = teapotData.vertexPositions.length / 3;
+
+        teapotVertexNormalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexNormalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(teapotData.vertexNormals), gl.STATIC_DRAW);
+        teapotVertexNormalBuffer.itemSize = 3;
+        teapotVertexNormalBuffer.numItems = teapotData.vertexNormals.length / 3;
+
+        teapotVertexFrontColorBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexFrontColorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(teapotData.vertexFrontcolors), gl.STATIC_DRAW);
+        teapotVertexFrontColorBuffer.itemSize = 3;
+        teapotVertexFrontColorBuffer.numItems = teapotData.vertexFrontcolors.length / 3;
+    }
+
+    function loadTeapot() {
+        var request = new XMLHttpRequest();
+        request.open("GET", "./model/Teapot.json");
+        request.onreadystatechange = function () {
+            if (request.readyState == 4) {
+                handleLoadedTeapot(JSON.parse(request.responseText));
+            }
+        }
+        request.send();
+    }
+    //add plant
+    function handleLoadedPlant(plantData) {
+        plantVertexPositionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, plantVertexPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(plantData.vertexPositions), gl.STATIC_DRAW);
+        plantVertexPositionBuffer.itemSize = 3;
+        plantVertexPositionBuffer.numItems = plantData.vertexPositions.length / 3;
+
+        plantVertexNormalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, plantVertexNormalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(plantData.vertexNormals), gl.STATIC_DRAW);
+        plantVertexNormalBuffer.itemSize = 3;
+        plantVertexNormalBuffer.numItems = plantData.vertexNormals.length / 3;
+
+        plantVertexFrontColorBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, plantVertexFrontColorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(plantData.vertexFrontcolors), gl.STATIC_DRAW);
+        plantVertexFrontColorBuffer.itemSize = 3;
+        plantVertexFrontColorBuffer.numItems = plantData.vertexFrontcolors.length / 3;
+    }
+    function loadPlant() {
+        var request = new XMLHttpRequest();
+        request.open("GET", "./model/Plant.json");
+        request.onreadystatechange = function () {
+            if (request.readyState == 4) {
+                handleLoadedPlant(JSON.parse(request.responseText));
+            }
+        }
+        request.send();
+    }
+    //add Kangaroo
+    function handleLoadedKangaroo(kangarooData) {
+        kangarooVertexPositionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, kangarooVertexPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(kangarooData.vertexPositions), gl.STATIC_DRAW);
+        kangarooVertexPositionBuffer.itemSize = 3;
+        kangarooVertexPositionBuffer.numItems = kangarooData.vertexPositions.length / 3;
+
+        kangarooVertexNormalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, kangarooVertexNormalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(kangarooData.vertexNormals), gl.STATIC_DRAW);
+        kangarooVertexNormalBuffer.itemSize = 3;
+        kangarooVertexNormalBuffer.numItems = kangarooData.vertexNormals.length / 3;
+
+        kangarooVertexFrontColorBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, kangarooVertexFrontColorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(kangarooData.vertexFrontcolors), gl.STATIC_DRAW);
+        kangarooVertexFrontColorBuffer.itemSize = 3;
+        kangarooVertexFrontColorBuffer.numItems = kangarooData.vertexFrontcolors.length / 3;
+    }
+    function loadKangaroo() {
+        var request = new XMLHttpRequest();
+        request.open("GET", "./model/Kangaroo.json");
+        request.onreadystatechange = function () {
+            if (request.readyState == 4) {
+                handleLoadedKangaroo(JSON.parse(request.responseText));
+            }
+        }
+        request.send();
+    }
+
+    function drawScene() {
+        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        if (teapotVertexPositionBuffer   == null || 
+            teapotVertexNormalBuffer     == null || 
+            teapotVertexFrontColorBuffer == null) {
+            
+            return;
+        }
+        var teapotScale = document.getElementById("teapotScale").value;
+        var teapotTranslationX = document.getElementById("teapotTranslationX").value;
+        var teapotTranslationY = document.getElementById("teapotTranslationY").value;
+        var teapotTranslationZ = document.getElementById("teapotTranslationZ").value;
+
+
+        // Setup Projection Matrix
+        mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0, pMatrix);
+        
+        // Setup Model-View Matrix
+        mat4.identity(mvMatrix);
+        mat4.scale(mvMatrix,[teapotScale,teapotScale,teapotScale]);
+        mat4.translate(mvMatrix, [teapotTranslationX, teapotTranslationY,teapotTranslationZ]);
+        // mat4.rotate(mvMatrix, degToRad(teapotAngle), [0, 1, 0]);
+        
+        setMatrixUniforms();
+
+        // Setup teapot position data
+        gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexPositionBuffer);
+        gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 
+                               teapotVertexPositionBuffer.itemSize, 
+                               gl.FLOAT, 
+                               false, 
+                               0, 
+                               0);
+
+        // Setup teapot front color data
+        gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexFrontColorBuffer);
+        gl.vertexAttribPointer(shaderProgram.vertexFrontColorAttribute, 
+                               teapotVertexFrontColorBuffer.itemSize, 
+                               gl.FLOAT, 
+                               false, 
+                               0, 
+                               0);
+
+        gl.drawArrays(gl.TRIANGLES, 0, teapotVertexPositionBuffer.numItems);
+
+        /**/
+       
+       
+        if (plantVertexPositionBuffer   == null || 
+            plantVertexNormalBuffer     == null || 
+            plantVertexFrontColorBuffer == null) {
+            
+            return;
+        }
+        
+        var plantTranslationX = document.getElementById("plantTranslationX").value;
+        var plantTranslationY = document.getElementById("plantTranslationY").value;
+        var plantTranslationZ = document.getElementById("plantTranslationZ").value;
+         // Setup Projection Matrix
+      
+
+        // Setup Model-View Matrix
+        mat4.identity(mvMatrix);
+        mat4.translate(mvMatrix, [plantTranslationX, plantTranslationY, plantTranslationZ]);
+        mat4.rotate(mvMatrix, 5, [1, 0, 0]);
+        // mat4.rotate(mvMatrix, degToRad(plantAngle), [0, 0, -1]);
+
+        setMatrixUniforms();
+
+         // Setup plant position data
+
+         gl.bindBuffer(gl.ARRAY_BUFFER, plantVertexPositionBuffer);
+        gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 
+                               plantVertexPositionBuffer.itemSize, 
+                               gl.FLOAT, 
+                               false, 
+                               0, 
+                               0);
+
+        // Setup plant front color data
+        gl.bindBuffer(gl.ARRAY_BUFFER, plantVertexFrontColorBuffer);
+        gl.vertexAttribPointer(shaderProgram.vertexFrontColorAttribute, 
+                               plantVertexFrontColorBuffer.itemSize, 
+                               gl.FLOAT, 
+                               false, 
+                               0, 
+                               0);
+
+        gl.drawArrays(gl.TRIANGLES, 0, plantVertexPositionBuffer.numItems);
+
+        /**/
+        // gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+
+        if (kangarooVertexPositionBuffer   == null || 
+            kangarooVertexNormalBuffer     == null || 
+            kangarooVertexFrontColorBuffer == null) {
+            
+            return;
+        }
+    
+        var kangarooTranslationX = document.getElementById("kangarooTranslationX").value;
+        var kangarooTranslationY = document.getElementById("kangarooTranslationY").value;
+        var kangarooTranslationZ = document.getElementById("kangarooTranslationZ").value;
+
+        // Setup Model-View Matrix
+        mat4.identity(mvMatrix);
+        // mat4.rotate(mvMatrix, 5, [1, 0, 0]);
+        mat4.translate(mvMatrix, [kangarooTranslationX,kangarooTranslationY, kangarooTranslationZ]);
+       
+        // mat4.rotate(mvMatrix, degToRad(kangarooAngle), [0, 0, 1]);
+
+        setMatrixUniforms();
+         // Setup kangaroo position data
+         gl.bindBuffer(gl.ARRAY_BUFFER, kangarooVertexPositionBuffer);
+        gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 
+                               kangarooVertexPositionBuffer.itemSize, 
+                               gl.FLOAT, 
+                               false, 
+                               0, 
+                               0);
+
+        // Setup kangaroo front color data
+        gl.bindBuffer(gl.ARRAY_BUFFER, kangarooVertexFrontColorBuffer);
+        gl.vertexAttribPointer(shaderProgram.vertexFrontColorAttribute, 
+                               kangarooVertexFrontColorBuffer.itemSize, 
+                               gl.FLOAT, 
+                               false, 
+                               0, 
+                               0);
+
+        gl.drawArrays(gl.TRIANGLES, 0, kangarooVertexPositionBuffer.numItems);
+    }
+
+    function animate() {
+        var timeNow = new Date().getTime();
+        if (lastTime != 0) {
+            var elapsed = timeNow - lastTime;
+            teapotAngle += 0.03 * elapsed;
+        }
+        if (lastTime != 0) {
+            var elapsed = timeNow - lastTime;
+            plantAngle += 0.03 * elapsed;
+        }
+        if (lastTime != 0) {
+            var elapsed = timeNow - lastTime;
+            kangarooAngle += 0.03 * elapsed;
+        }
+        
+        lastTime = timeNow;
+    }
+
+    function tick() {
+        requestAnimFrame(tick);
+        drawScene();
+        animate();
+    }
+    
+
+    function webGLStart() {
+        var canvas = document.getElementById("ICG-canvas");
+        initGL(canvas);
+        // sliderNumber();
+        initShaders();
+        loadTeapot();
+        loadPlant();
+        loadKangaroo();
+
+        gl.clearColor(0.0, 0.2, 0.2, 1.0);
+        gl.enable(gl.DEPTH_TEST);
+
+        tick();
+    }
+</script>
+
+</head>
+
+<body onload="webGLStart();">
+    <canvas id="ICG-canvas" style="border: none;" width="1280" height="720"></canvas>
+    <br/>
+    <table>
+        <tr>
+          <td>  </td>
+          <td>茶壺</td>
+          <td>植物</td>
+          <td>袋鼠</td>
+        </tr>
+        <tr>
+            <td>shading </td>
+            <td> 
+                <select>
+                <option>flat shading</option>
+                <option>Gouraud shading</option>
+                <option>Phong shading</option>
+                </select>
+            </td>
+            <td>   
+                <select>
+                <option>flat shading</option>
+                <option>Gouraud shading</option>
+                <option>Phong shading</option>
+                </select>
+            </td>
+            <td>
+                <select>
+                <option>flat shading</option>
+                <option>Gouraud shading</option>
+                <option>Phong shading</option>
+                </select>
+            </td>
+        </tr>
+
+        <tr>
+            <td>Scale</td>
+            <td> 
+              <div class="slidecontainer">
+                  <input type="range" min="-20" max="10" value="1" class="slider" id="teapotScale">
+                  <!-- <p>Value: <span id="teapotTranslationValueX"></span></p> -->
+              </div>
+            </td>
+            <td>
+              <div class="slidecontainer">
+                  <input type="range" min="-10" max="10" value="-2" class="slider" id="plantScale">
+                  <!-- <p>Value: <span id="plantTranslationValueX"></span></p> -->
+              </div>
+            </td>
+            <td>
+                <div class="slidecontainer">
+                  <input type="range" min="-10" max="8" value="0" class="slider" id="kangarooScale">
+                  <!-- <p>Value: <span id="kangarooTranslationValueX"></span></p> -->
+                </div> 
+            </td>
+          </tr>
+
+        <tr>
+          <td>TranslationX</td>
+          <td> 
+            <div class="slidecontainer">
+                <input type="range" min="-20" max="20" value="0" class="slider" id="teapotTranslationX">
+                <!-- <p>Value: <span id="teapotTranslationValueX"></span></p> -->
+            </div>
+          </td>
+          <td>
+            <div class="slidecontainer">
+                <input type="range" min="-10" max="10" value="-2" class="slider" id="plantTranslationX">
+                <!-- <p>Value: <span id="plantTranslationValueX"></span></p> -->
+            </div>
+          </td>
+          <td>
+              <div class="slidecontainer">
+                <input type="range" min="-10" max="8" value="0" class="slider" id="kangarooTranslationX">
+                <!-- <p>Value: <span id="kangarooTranslationValueX"></span></p> -->
+              </div> 
+          </td>
+        </tr>
+        <tr>
+            <td>TranslationY</td>
+            <td> 
+              <div class="slidecontainer">
+                  <input type="range" min="-20" max="20" value="0" class="slider" id="teapotTranslationY">
+                  <!-- <p>Value: <span id="teapotTranslationValueY"></span></p> -->
+              </div>
+            </td>
+            <td>
+              <div class="slidecontainer">
+                  <input type="range" min="-10" max="10" value="0" class="slider" id="plantTranslationY">
+                  <!-- <p>Value: <span id="plantTranslationValueY"></span></p> -->
+              </div>
+            </td>
+            <td>
+                <div class="slidecontainer">
+                  <input type="range"  min="-10" max="10" value="0" class="slider" id="kangarooTranslationY">
+                  <!-- <p>Value: <span id="kangarooTranslationValueY"></span></p> -->
+                </div> 
+            </td>
+        </tr>
+        <tr>
+            <td>TranslationZ</td>
+            <td> 
+              <div class="slidecontainer">
+                  <input type="range" min="-200" max="5" value="-40" class="slider" id="teapotTranslationZ">
+                  <!-- <p>Value: <span id="teapotTranslationValueZ"></span></p> -->
+              </div>
+            </td>
+            <td>
+              <div class="slidecontainer">
+                  <input type="range" min="-100" max="100" value="-6" class="slider" id="plantTranslationZ">
+                  <!-- <p>Value: <span id="plantTranslationValueZ"></span></p> -->
+              </div>
+            </td>
+            <td>
+                <div class="slidecontainer">
+                  <input type="range" min="-100" max="100" value="-6" class="slider" id="kangarooTranslationZ">
+                  <!-- <p>Value: <span id="kangarooTranslationValueZ"></span></p> -->
+                </div> 
+            </td>
+        </tr>
+      </table>
+    
+      
+</body>
+
+
+</html>
