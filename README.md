@@ -4,6 +4,7 @@
 ## 環境Environment
 * 本機端可運行於Firefox 和 Safari(需關閉阻擋CORS)
 * 開啟 index.html來看網頁內容
+* [Online Demo](https://hongrenke.github.io/ICG_HW1/)
 
 ## 已具有功能 Implementations
 * 三個model 在同個畫面  
